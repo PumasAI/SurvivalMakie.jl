@@ -1,0 +1,141 @@
+name: CI
+on:
+  merge_group:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "*"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref != 'refs/heads/main' || github.run_number }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
+permissions:
+  contents: read
+
+env:
+  JULIA_VERSION: "1.12"
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      statuses: write
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+        version:
+          - "1.12"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3.0.2
+        with:
+          version: ${{ matrix.version }}
+      - uses: julia-actions/julia-buildpkg@e3eb439fad4f9aba7da2667e7510e4a46ebc46e1 # v1.7.0
+      - uses: julia-actions/julia-runtest@d60b785c6f2bdf4ebfb18b2b6f7d93b7dfb0efe3 # v1.11.4
+        id: run-tests
+      # When reference images fail, PixelMatch writes a self-contained HTML report with
+      # side-by-side reference/recorded/diff images. The report name carries runner.os
+      # (set in test/runtests.jl) so the matrix jobs produce distinct artifacts; with
+      # archive: false the artifact is named after the file.
+      - name: Upload PixelMatch report
+        id: upload-report
+        if: failure() && steps.run-tests.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: test/reference_images/pixelmatch-report-${{ runner.os }}.html
+          archive: false
+          if-no-files-found: ignore
+      - name: Post failing status linking to the report
+        if: failure() && steps.run-tests.outcome == 'failure' && steps.upload-report.outputs.artifact-url != ''
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        with:
+          script: |
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.payload.pull_request?.head?.sha ?? context.sha,
+              state: 'failure',
+              context: `PixelMatch report (${process.env.RUNNER_OS})`,
+              target_url: '${{ steps.upload-report.outputs.artifact-url }}',
+              description: 'Reference image failures, click Details for the HTML report',
+            })
+      - uses: julia-actions/julia-processcoverage@03114f09f119417c3242a9fb6e0b722676aedf38 # v1.2.2
+      - uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        with:
+          verbose: true
+          files: lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  readme:
+    name: README up to date
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3.0.2
+        with:
+          version: ${{ env.JULIA_VERSION }}
+      # Render the README with the quarto binary from quarto_jll (no separate quarto
+      # install) into the working tree, then verify it is up to date: the generated
+      # markdown must match the committed README.md exactly, while the PNG images are
+      # compared with PixelMatch since their bytes are not reproducible across renders.
+      - name: Render README
+        run: julia --project=_readme _readme/make.jl
+      - name: Check README markdown is up to date
+        run: git diff --exit-code -- README.md
+      - name: Check README images match committed (PixelMatch)
+        run: julia --project=_readme _readme/check_images.jl
+
+  docs:
+    name: Build & deploy docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write # push the built site to the gh-pages branch (GITHUB_TOKEN auth)
+      pull-requests: read # required for push_preview=true
+      statuses: write # report documentation build status
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3.0.2
+        with:
+          version: ${{ env.JULIA_VERSION }}
+      - name: Instantiate docs environment
+        run: julia --project=docs -e 'using Pkg; Pkg.instantiate()'
+      # DocumenterVitepress bundles Node (NodeJS_20_jll), so no separate Node setup is
+      # needed. make.jl builds the Vitepress site and deploydocs pushes to gh-pages
+      # (and PR previews) using GITHUB_TOKEN.
+      - name: Build and deploy docs
+        run: julia --project=docs docs/make.jl
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Single gate for branch protection: require only "CI result" and every job above
+  # contributes to it. if: always() so it still runs when a need fails, then it fails
+  # unless every need succeeded.
+  finalize:
+    name: CI result
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [test, readme, docs]
+    steps:
+      - run: |
+          results='${{ toJSON(needs.*.result) }}'
+          echo "Job results: $results"
+          if echo "$results" | grep -qE '"(failure|cancelled)"'; then
+            echo "Some required jobs failed or were cancelled"
+            exit 1
+          fi

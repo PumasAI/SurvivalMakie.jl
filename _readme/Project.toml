@@ -1,0 +1,12 @@
+[deps]
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+PNGFiles = "f57f5aa1-a3ce-4bc8-8ab9-96f992907883"
+PixelMatch = "433bd86c-62cb-491d-a348-72c5c8365002"
+QuartoNotebookRunner = "4c0109c6-14e9-4c88-93f0-2b974d3468f4"
+RDatasets = "ce6b1742-4840-55fa-b093-852dadbb1d8b"
+SurvivalMakie = "bf023337-e061-4fef-9675-391287eaa549"
+quarto_jll = "b7163347-bfae-5fd9-aba4-19f139889d78"
+
+[sources]
+SurvivalMakie = {path = ".."}

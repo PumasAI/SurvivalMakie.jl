@@ -1,0 +1,13 @@
+Manifest.toml
+.scratch/
+.DS_Store
+
+# Docs build artifacts
+docs/build/
+docs/node_modules/
+docs/package-lock.json
+
+# Reference-test outputs: keep the committed *_ref.png, ignore the rest.
+test/reference_images/*_rec.png
+test/reference_images/*_diff.png
+test/reference_images/pixelmatch-report*.html

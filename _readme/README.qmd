@@ -1,0 +1,50 @@
+---
+engine: julia
+format: gfm
+fig-dpi: 192
+---
+
+# SurvivalMakie
+
+<img src="docs/src/assets/logo.png" align="right" width="180" alt="SurvivalMakie logo" />
+
+[![CI](https://github.com/PumasAI/SurvivalMakie.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/PumasAI/SurvivalMakie.jl/actions/workflows/CI.yml)
+[![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://pumasai.github.io/SurvivalMakie.jl/dev/)
+
+SurvivalMakie plots survival analysis results. A single `survivalplot` function turns a table
+of event times into a Kaplan-Meier (or cumulative-incidence) figure with confidence bands,
+censoring marks, a number-at-risk table, and optional quantile lines. The estimate comes from
+[SurvivalModels.jl](https://github.com/JuliaSurv/SurvivalModels.jl) and the drawing from
+[AlgebraOfGraphics](https://aog.makie.org), so grouping, legends, scales, and faceting are
+handled by a mature plotting stack.
+
+## Example
+
+```{julia}
+#| echo: false
+#| output: false
+using CairoMakie
+# PNG (not SVG) so the committed README images can be PixelMatch-compared in CI;
+# SVG output is not reproducible enough to diff across renders.
+CairoMakie.enable_only_mime!("png")
+```
+
+```{julia}
+using SurvivalMakie, CairoMakie, RDatasets, DataFrames
+
+lung = dataset("survival", "lung")
+transform!(lung,
+    :Status => ByRow(==(2)) => :Died,
+    :Sex => ByRow(s -> s == 1 ? "Male" : "Female") => :Sex,
+)
+
+survivalplot(lung; time = :Time, status = :Died, color = :Sex)
+```
+
+Faceting, cumulative incidence, quantile lines, and styling are shown in the
+[documentation](https://pumasai.github.io/SurvivalMakie.jl/dev/).
+
+```{julia}
+survivalplot(lung; time = :Time, status = :Died, color = :Sex,
+    statistic = :cumulative_incidence, quantile = 0.5)
+```
